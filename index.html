@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0a0714">
+<link rel="manifest" href="./manifest.json">
+<link rel="icon" href="./icon-192.png">
+<link rel="apple-touch-icon" href="./icon-192.png">
 <title>Coso di Sassi di Inv - V6 OTTIMIZZATO</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
@@ -529,6 +535,20 @@
         <button class="btn btn-legendary" onclick="window.ascend()">ASCENDI</button>
       </div>
       <div class="settings-row" style="margin-top:20px;"><span>Resetta Dati Base</span><button class="btn btn-ember" onclick="if(confirm('Sicuro? Perderai anche le ascensioni!')) { localStorage.removeItem('miningSaveV6'); localStorage.removeItem('miningSaveV5'); location.reload(); }">RESET TOTALE</button></div>
+    </div>
+
+    <div class="panel" style="margin-top:20px; border-color:var(--cosmic);">
+      <h2 style="color:var(--cosmic)">TRASFERISCI SALVATAGGIO</h2>
+      <small class="help" style="margin-bottom:14px;">Usa questo per portare i tuoi progressi da un browser/dispositivo a un altro (es. dal browser all'app Windows, o viceversa).</small>
+      <div class="settings-row">
+        <span>Esporta Salvataggio<br><small style="color:var(--text-dim); font-size:14px;">Scarica un file con i tuoi progressi attuali.</small></span>
+        <button class="btn btn-good" onclick="window.exportSave()">ESPORTA (.json)</button>
+      </div>
+      <div class="settings-row">
+        <span>Importa Salvataggio<br><small style="color:var(--text-dim); font-size:14px;">Carica un file esportato in precedenza. Sovrascrive i progressi attuali!</small></span>
+        <button class="btn btn-amber" onclick="document.getElementById('importSaveFile').click()">IMPORTA (.json)</button>
+        <input type="file" id="importSaveFile" accept="application/json,.json" style="display:none;">
+      </div>
     </div>
 
     <div class="panel" style="margin-top:20px;">
@@ -1120,6 +1140,46 @@
 
   // SYSTEMA MIGRAZIONE SALVATAGGI
   function saveGame() { localStorage.setItem('miningSaveV6', JSON.stringify(state)); }
+  window.exportSave = function() {
+    saveGame();
+    const raw = localStorage.getItem('miningSaveV6');
+    if (!raw) { alert('Nessun salvataggio trovato da esportare.'); return; }
+    const blob = new Blob([raw], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const stamp = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+    a.href = url;
+    a.download = `coso-di-sassi-salvataggio-${stamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('SALVATAGGIO ESPORTATO!', 'good');
+  };
+  document.getElementById('importSaveFile').addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(ev) {
+      try {
+        const parsed = JSON.parse(ev.target.result);
+        if (!parsed || typeof parsed !== 'object' || !('wallet' in parsed)) {
+          throw new Error('Formato non valido');
+        }
+        if (!confirm('Importare questo salvataggio? I progressi attuali in questo dispositivo verranno sovrascritti.')) {
+          e.target.value = '';
+          return;
+        }
+        localStorage.setItem('miningSaveV6', JSON.stringify(parsed));
+        alert('Salvataggio importato! La pagina si ricaricherà ora.');
+        location.reload();
+      } catch (err) {
+        alert('File non valido: non sembra un salvataggio di Coso di Sassi.');
+      }
+      e.target.value = '';
+    };
+    reader.readAsText(file);
+  });
   function loadGame() {
     let saved = localStorage.getItem('miningSaveV6');
     if (!saved) {
@@ -2492,6 +2552,12 @@
   updateCanvasAndGridScale(); syncBots(); newRock(); updateAllUI(); updateWallet(); updateBossUI(); refreshOptButtons();
   requestAnimationFrame(loop);
 })();
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(err => console.warn('SW registration failed', err));
+  });
+}
 </script>
 </body>
 </html>
