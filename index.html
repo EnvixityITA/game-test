@@ -1228,7 +1228,26 @@
     // errore: dolce "scivolata verso il basso" invece del doppio buzz sgradevole
     error: () => { SFX.play(392, 'sine', 0.14, 0.045, {glideTo:262}); },
     // ascensione: scala completa che sale in maggiore con brillio finale, molto più trionfale/carina
-    ascend: () => { [392,494,587,659,784,988,1175].forEach((f,i)=> SFX.play(f, 'triangle', 0.4, 0.09, {delay:i*0.085})); SFX.play(1568, 'sine', 0.7, 0.05, {delay:0.62}); SFX.noise(0.5, 0.03, 5000, 'highpass', {delay:0.6, filterTo:9000}); }
+    ascend: () => { [392,494,587,659,784,988,1175].forEach((f,i)=> SFX.play(f, 'triangle', 0.4, 0.09, {delay:i*0.085})); SFX.play(1568, 'sine', 0.7, 0.05, {delay:0.62}); SFX.noise(0.5, 0.03, 5000, 'highpass', {delay:0.6, filterTo:9000}); },
+    // firma sonora del piccone equipaggiato: un accordo leggero sopra il colpo base,
+    // tanto più ricco/brillante quanto più il piccone è raro (level 0-4). I picconi
+    // starter (level 0/undefined) restano silenziosi qui: il "pling" normale basta.
+    pickHitLayer: (level) => {
+      if(!level) return;
+      const chords = [ [1046], [1046,1568], [1318,1760,2093], [1568,2093,2637,3136] ];
+      const chord = chords[Math.min(level, chords.length)-1] || chords[0];
+      chord.forEach((f,i)=> SFX.play(f, 'sine', 0.05, 0.015 + level*0.004, {delay:i*0.01}));
+    },
+    // proc di un'abilità speciale del piccone: campanello arpeggiato distintivo,
+    // usato per segnalare fulmini/esplosioni/onde ecc. senza confondersi col colpo critico
+    special: (baseFreq) => { [1,1.25,1.5,2].forEach((mul,i)=> SFX.play(baseFreq*mul, 'triangle', 0.09, 0.06, {delay:i*0.032})); SFX.noise(0.12, 0.04, 4000, 'bandpass'); },
+    // firma dell'equipaggiamento: quanto più il piccone è raro tanto più il fanfara è lunga e ricca
+    pickEquip: (level) => {
+      const base = [440, 554, 659];
+      const extra = level>=2 ? [880, 1108] : []; const extra2 = level>=3 ? [1318, 1760] : [];
+      [...base, ...extra, ...extra2].forEach((f,i)=> SFX.play(f, 'triangle', 0.16, 0.06, {delay:i*0.05}));
+      if(level>=3) SFX.play(2093, 'sine', 0.5, 0.05, {delay:0.35});
+    }
   };
   document.getElementById('btnToggleSound').onclick = function() { SFX.muted = !SFX.muted; this.textContent = SFX.muted ? 'DISATTIVATI' : 'ATTIVATI'; this.className = SFX.muted ? 'btn btn-ember' : 'btn btn-good'; };
 
@@ -1888,6 +1907,53 @@
   function spawnLightning(x1,y1,x2,y2,color){ localState.lightnings.push({x1,y1,x2,y2,life:1,color:color||'#7be3ff'}); }
   function spawnCritBurst(x,y,color){ localState.critBursts.push({x,y,life:1,color:color||'#fff'}); }
 
+  // VFX del piccone: ogni piccone (tranne il primissimo, il Ferro Arrugginito) ha una
+  // "firma" visiva propria sui colpi, presa dalla sua stessa palette pixel-art, così
+  // ogni arma si sente diversa da impugnare anche a parità di gameplay sottostante.
+  function spawnPickaxeHitFX(x, y, pick, isCrit){
+    if(!pick || pick.id === 'rusty') return;
+    const pal = PICK_PIXEL_PALETTE[pick.id]; if(!pal) return;
+    const col = pal.accent || pal.head;
+    const glow = pal.glow || 0;
+    const n = state.optLowFX ? (isCrit?2:1) : (isCrit ? 5 + Math.min(4, pal.level||0) : 2 + Math.min(2, pal.level||0));
+    for(let i=0;i<n;i++){
+      localState.particles.push({
+        x: x + (Math.random()-0.5)*6, y: y + (Math.random()-0.5)*4,
+        vx: (Math.random()-0.5)*(isCrit?7:4), vy: -Math.random()*(isCrit?6:4)-0.5, life: 1,
+        color: col, size: Math.random()*(isCrit?4:3)+1.5,
+        glowColor: glow >= 8 ? col : null, shape: (glow>=9 && Math.random()>0.5) ? 'star' : 'square'
+      });
+    }
+    // i picconi di fascia alta (leggendari/mitici, glow>=9) lasciano anche un piccolo
+    // bagliore ad anello sul colpo critico, coerente col loro colore
+    if(isCrit && glow >= 9) spawnCritBurst(x, y, col);
+  }
+
+  // Firme dei picconi il cui potere è "solo" un moltiplicatore invisibile: qui diamo
+  // a ognuno un piccolo momento visivo/sonoro coerente con la sua fantasia, così anche
+  // Celestiale, Divino, Onnipotente ecc. si "sentono" mentre si gioca, non solo nei numeri.
+  const PICK_PROC_FX = {
+    toxic:      (x,y)=>{ SFX.special(392); for(let i=0;i<8;i++) spawnCustomParticle(x,y,'#6be38b',-Math.random()*4-1); },
+    void:       (x,y)=>{ SFX.special(523); spawnCritBurst(x,y,'#c98bff'); for(let i=0;i<6;i++) spawnCustomParticle(x,y,'#c98bff',-Math.random()*4-1); },
+    phoenix:    (x,y)=>{ SFX.special(587); for(let i=0;i<10;i++) spawnCustomParticle(x,y,i%2===0?'#ff8a3d':'#ffd23f',-Math.random()*6-2); },
+    quantum:    (x,y)=>{ SFX.special(880); spawnLightning(x-20,y-15,x+20,y+15,'#00ffcc'); for(let i=0;i<5;i++) spawnCustomParticle(x,y,'#00ffcc',-Math.random()*4-1); },
+    celestial:  (x,y)=>{ SFX.special(1046); spawnCritBurst(x,y,'#ffd700'); for(let i=0;i<8;i++) spawnCustomParticle(x,y,'#ffe27a',-Math.random()*5-1); },
+    astral:     (x,y)=>{ SFX.special(988); for(let i=0;i<7;i++) spawnCustomParticle(x,y,'#b3d9ff',-Math.random()*4-1); },
+    nebula:     (x,y)=>{ SFX.special(659); const c=['#66ffcc','#cc66ff','#ff9966']; for(let i=0;i<8;i++) spawnCustomParticle(x,y,c[i%3],-Math.random()*5-1); },
+    chrono:     (x,y)=>{ SFX.special(740); spawnCritBurst(x,y,'#9be3ff'); for(let i=0;i<6;i++) spawnCustomParticle(x,y,'#9be3ff',-Math.random()*4-1); },
+    abyssal:    (x,y)=>{ SFX.special(220); for(let i=0;i<8;i++) spawnCustomParticle(x,y,'#ff5c7a',-Math.random()*5-1); },
+    infinity:   (x,y)=>{ SFX.special(1318); const c=['#ff5c5c','#ffb35c','#ffe75c','#5cff8f','#5cc5ff','#c55cff']; for(let i=0;i<9;i++) spawnCustomParticle(x,y,c[i%6],-Math.random()*5-1); spawnCritBurst(x,y,'#fff'); },
+    eternal:    (x,y)=>{ SFX.special(880); spawnCritBurst(x,y,'#a8e6ff'); for(let i=0;i<6;i++) spawnCustomParticle(x,y,'#a8e6ff',-Math.random()*4-1); },
+    genesis:    (x,y)=>{ SFX.special(494); for(let i=0;i<8;i++) spawnCustomParticle(x,y,'#5cff8f',-Math.random()*5-1); },
+    divine:     (x,y)=>{ SFX.special(1568); spawnCritBurst(x,y,'#ffe37a'); for(let i=0;i<10;i++) spawnCustomParticle(x,y,'#ffe37a',-Math.random()*6-2); },
+    omnipotent: (x,y)=>{ SFX.special(415); spawnCritBurst(x,y,'#c35cff'); for(let i=0;i<7;i++) spawnCustomParticle(x,y,'#c35cff',-Math.random()*4-1); },
+    creator:    (x,y)=>{ SFX.special(1760); const c=['#ff5c5c','#ffb35c','#ffe75c','#5cff8f','#5cc5ff','#c55cff']; for(let i=0;i<10;i++) spawnCustomParticle(x,y,c[i%6],-Math.random()*6-2); spawnCritBurst(x,y,'#fff'); },
+    transcendent:(x,y)=>{ SFX.special(1975); const c=['#ff5c5c','#ffb35c','#ffe75c','#5cff8f','#5cc5ff','#c55cff']; for(let i=0;i<10;i++) spawnCustomParticle(x,y,c[i%6],-Math.random()*6-2); spawnCritBurst(x,y,'#fff'); spawnCritBurst(x,y,c[Math.floor(Math.random()*6)]); },
+    ascendant:  (x,y)=>{ SFX.special(659); spawnCritBurst(x,y,'#5cffb0'); for(let i=0;i<8;i++) spawnCustomParticle(x,y,'#5cffb0',-Math.random()*5-1); },
+    omega_prime:(x,y)=>{ SFX.special(196); spawnCritBurst(x,y,'#ff2b2b'); for(let i=0;i<10;i++) spawnCustomParticle(x,y,'#ff2b2b',-Math.random()*6-2); },
+    apex:       (x,y)=>{ SFX.special(2093); const c=['#ff5c5c','#ffb35c','#ffe75c','#5cff8f','#5cc5ff','#c55cff']; for(let i=0;i<12;i++) spawnCustomParticle(x,y,c[i%6],-Math.random()*7-2); spawnCritBurst(x,y,'#fff'); spawnCritBurst(x,y,'#fff'); }
+  };
+
   canvasContainer.addEventListener('mousemove', (e) => {
     const r = canvas.getBoundingClientRect(); const nx = (e.clientX - r.left) * (canvas.width / r.width); const ny = (e.clientY - r.top) * (canvas.height / r.height);
     // SWAY: la velocità orizzontale del movimento spinge un "impulso" sull'angolo del piccone,
@@ -2138,7 +2204,8 @@
     }
   }
 
-  // Passiva FENICE: quando si libera una roccia, la prossima nasce già colpita da una pioggia di brace
+  // Passiva FENICE: quando si libera una roccia, la prossima nasce già colpita da una pioggia di brace,
+  // stessa intensità visiva delle altre abilità (niente flash a tutto schermo)
   function triggerPhoenixBurst(){
     if(!localState.rock) return;
     const avail = localState.rock.cells.filter(c=>!c.broken);
@@ -2155,7 +2222,7 @@
       spawnCustomParticle(px, py, '#ffd23f', -1.5-Math.random()*2);
       if(c.hp <= 0) handleCellBreak(c, true);
     }
-    if(hits > 0){ SFX.explosion(); localState.shake = 14; showToast("FENICE: PIOGGIA DI BRACE!", "mine"); updateInventoryUI(); }
+    if(hits > 0){ SFX.explosion(); SFX.special(220); localState.shake = 14; showToast("FENICE: PIOGGIA DI BRACE!", "mine"); updateInventoryUI(); }
   }
 
   function updateBossUI(){
@@ -2794,34 +2861,50 @@
     if(isCrit) { localState.critStreak = Math.min(10, (localState.critStreak||0) + 1); localState.critStreakTimer = 180; }
     if((localState.critStreak||0) > 0 && state.upgCritChain > 0) { basePower *= (1 + localState.critStreak * state.upgCritChain * 0.02); }
 
-    // tempesta
+    // tempesta: un lampo che attraversa la scena annuncia il doppio colpo in arrivo
     let stormDoubleHit = false;
-    if(pick.id === 'storm' && Math.random() < 0.18) { stormDoubleHit = true; showToast("DOPPIO COLPO!", "mine"); }
+    if(pick.id === 'storm' && Math.random() < 0.18) {
+        stormDoubleHit = true; showToast("DOPPIO COLPO!", "mine"); SFX.special(880);
+        spawnLightning(localState.mouseX-40, localState.mouseY-30, localState.mouseX+40, localState.mouseY+30, '#ffe37a');
+        for(let i=0;i<6;i++) spawnCustomParticle(localState.mouseX, localState.mouseY, '#ffe37a', -Math.random()*4-1);
+    }
     
-    // congelante
-    if(pick.id === 'freeze' && isCrit && localState.bossActive) { localState.bossAttackTimer += 60; showToast("BOSS RALLENTATO!", "boss"); }
+    // congelante: un'ondata di cristalli di ghiaccio si irradia dal punto di impatto
+    if(pick.id === 'freeze' && isCrit && localState.bossActive) {
+        localState.bossAttackTimer += 60; showToast("BOSS RALLENTATO!", "boss"); SFX.special(659);
+        for(let i=0;i<10;i++) spawnCustomParticle(localState.mouseX, localState.mouseY, i%2===0?'#00ffff':'#d6faff', -Math.random()*5-1);
+        spawnCritBurst(localState.mouseX, localState.mouseY, '#00ffff');
+    }
 
     // anello critico
     if(isCrit) spawnCritBurst(localState.mouseX, localState.mouseY, localState.feverTimer>0 ? '#ff00aa' : '#ffe37a');
+
+    // proc dei picconi leggendari/mitici: un lampo di identità sui critici, per far
+    // "sentire" anche i picconi la cui abilità è solo un moltiplicatore passivo
+    if(isCrit && PICK_PROC_FX[pick.id] && Math.random() < 0.35) PICK_PROC_FX[pick.id](localState.mouseX, localState.mouseY);
     
-    // sonica
+    // sonica: onda d'urto visibile che si propaga sullo schermo mentre i droni impazziscono
     if(pick.id === 'sonic' && state.totalClicks % 50 === 0 && localState.bots.length > 0) {
-        showToast("ONDA SONICA: DRONI IMPAZZITI!", "boss"); SFX.feverStart(); localState.shake = 20;
+        showToast("ONDA SONICA: DRONI IMPAZZITI!", "boss"); SFX.feverStart(); SFX.special(440); localState.shake = 20;
+        for(let ring=0; ring<3; ring++) setTimeout(()=> spawnCritBurst(canvas.width/2, canvas.height/2, '#ff00aa'), ring*90);
         localState.bots.forEach(bot => { if(bot.targetCell) bot.targetCell.hp -= basePower * 2; if(bot.targetCell && bot.targetCell.hp <= 0) handleCellBreak(bot.targetCell, true); });
     }
 
     localState.shake = precision > 0.6 ? (isCrit ? 10 : 5) : 3; 
     if(localState.feverTimer>0 || isCrit) SFX.hitCrit(); else SFX.hit();
+    SFX.pickHitLayer((PICK_PIXEL_PALETTE[pick.id]||{}).level);
 
-    // vulcanica
+    // vulcanica: pioggia di brace su tutta la roccia, coerente in intensità con le altre abilità
     if(pick.id === 'volcanic' && Math.random() < 0.10) {
-        showToast("ESPLOSIONE VULCANICA!", "boss"); SFX.explosion(); localState.shake = 30;
+        showToast("ESPLOSIONE VULCANICA!", "boss"); SFX.explosion(); SFX.special(220); localState.shake = 30;
+        for(let i=0;i<24;i++) spawnCustomParticle(canvas.width/2 + (Math.random()*140-70), canvas.height/2 + (Math.random()*100-50), i%3===0?'#ff9900':'#ff5522', -Math.random()*6-1);
         localState.rock.cells.forEach(c => { if(c.type === 'stone' && !c.broken) { c.hp = 0; handleCellBreak(c, false); } });
     } else {
         targetCells.forEach(cell => {
             let power = basePower; if(cell.x !== icx || cell.y !== icy) power = Math.max(1, Math.floor(basePower * 0.6));
             addFloatingText(offsetX + cell.x*CELL+CELL/2, offsetY + cell.y*CELL, isCrit ? `CRIT ${power===Infinity?'INF':Math.round(power)}` : `-${power===Infinity?'INF':Math.round(power)}`, isCrit ? (localState.feverTimer>0 ? '#ff00aa':'#f5c053') : '#fff');
             cell.hp -= power; cell.flash = 1; spawnParticles(offsetX + cell.x*CELL+CELL/2, offsetY + cell.y*CELL, null, false);
+            spawnPickaxeHitFX(offsetX + cell.x*CELL+CELL/2, offsetY + cell.y*CELL+CELL/2, pick, isCrit);
             if(cell.hp <= 0) handleCellBreak(cell, false);
 
             // secondo colpo ritardato
@@ -2838,15 +2921,18 @@
                 }, 90);
             }
 
-            // fulmine ai sassi adiacenti
+            // fulmine ai sassi adiacenti: prisma scompone la luce in un ventaglio di colori
             if(pick.id === 'prism' && isCrit){
+                SFX.special(1046);
                 [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy]) => {
                     const nc = localState.rock.cells.find(c=>c.x===cell.x+dx && c.y===cell.y+dy && !c.broken);
                     if(nc && !targetCells.includes(nc)){
                         const chainDmg = Math.max(1, Math.floor(basePower * 0.4));
                         const p1x = offsetX+cell.x*CELL+CELL/2, p1y = offsetY+cell.y*CELL+CELL/2;
                         const p2x = offsetX+nc.x*CELL+CELL/2, p2y = offsetY+nc.y*CELL+CELL/2;
-                        spawnLightning(p1x, p1y, p2x, p2y, '#ff5cf0');
+                        const chainCols = ['#ff5cf0','#5cf0ff','#c5ff5c','#ffe75c'];
+                        spawnLightning(p1x, p1y, p2x, p2y, chainCols[Math.floor(Math.random()*chainCols.length)]);
+                        spawnCustomParticle(p2x, p2y, '#fff', -Math.random()*3-1);
                         addFloatingText(p2x, p2y-8, `${chainDmg}`, '#ff5cf0');
                         nc.hp -= chainDmg; nc.flash = 1;
                         if(nc.hp <= 0) handleCellBreak(nc, false);
@@ -3046,19 +3132,27 @@
     // compat salvataggi vecchi
     const prereqsMet = PICKAXES.slice(0, idx).every(pp => state.ownedPickaxes.includes(pp.id));
     if(!prereqsMet) { SFX.error(); showToast("PRIMA SBLOCCA I PICCONI PRECEDENTI!"); return; }
-    if(state.wallet >= pick.cost) { state.wallet -= pick.cost; state.ownedPickaxes.push(id); state.pickaxeIdx = idx; SFX.buy(); SFX.feverStart(); flashNewPickaxe(pick); updateAllUI(); updateWallet(); }
+    if(state.wallet >= pick.cost) { state.wallet -= pick.cost; state.ownedPickaxes.push(id); state.pickaxeIdx = idx; SFX.buy(); flashNewPickaxe(pick); updateAllUI(); updateWallet(); }
   };
   window.equipPickaxe = (id) => {
     if(!state.ownedPickaxes.includes(id)) return;
     const idx = PICKAXES.findIndex(p => p.id === id); if(idx < 0) return;
-    state.pickaxeIdx = idx; SFX.buy(); flashNewPickaxe(PICKAXES[idx]); updateAllUI();
+    state.pickaxeIdx = idx; flashNewPickaxe(PICKAXES[idx]); updateAllUI();
   };
 
-  // feedback equip/acquisto
+  // feedback equip/acquisto: colore e intensità seguono la rarità del piccone,
+  // così un Ferro Arrugginito equipaggiato sembra modesto e un Piccone Apex sembra un evento
   function flashNewPickaxe(pick){
     if(!localState.rock) return;
-    localState.shake = 10;
-    for(let i=0;i<18;i++) spawnCustomParticle(canvas.width/2 + (Math.random()*60-30), canvas.height/2 + (Math.random()*30-15), i%2===0 ? '#ffd700' : '#fff', -Math.random()*3-1);
+    const pal = PICK_PIXEL_PALETTE[pick.id] || {};
+    const level = pal.level || 0;
+    const col = pal.accent || pal.head || '#ffd700';
+    localState.shake = pick.id === 'rusty' ? 4 : 8 + level*3;
+    const count = pick.id === 'rusty' ? 8 : 16 + level*8;
+    for(let i=0;i<count;i++) spawnCustomParticle(canvas.width/2 + (Math.random()*70-35), canvas.height/2 + (Math.random()*30-15), i%2===0 ? col : '#fff', -Math.random()*3-1);
+    if(level >= 2) spawnCritBurst(canvas.width/2, canvas.height/2, col);
+    if(level >= 3) setTimeout(()=> spawnCritBurst(canvas.width/2, canvas.height/2, col), 140);
+    if(pick.id === 'rusty') SFX.buy(); else SFX.pickEquip(level);
     showToast(`EQUIPAGGIATO: ${pick.name.toUpperCase()}`, "mine");
   }
 
